@@ -1,107 +1,104 @@
-pragma solidity ^0.4.0;
+pragma solidity ^0.5.0;
 
 contract Auction {
-    
+    /**Add 1 hour limit*/
+    uint biddingEnds = now + 1 hours;
+
     struct Bidder {
-        address _address;
+        address payable _address;
         uint bidAmount;
     }
-    
+
     Bidder[5] suppliers;
     Bidder[5] consumers;
-    
+
     uint totalConsumers;
     uint totalSuppliers;
-    
-    uint[3][5] public tradeMatch; // Supp, Cons, Price //Test purpose
-    uint public tradeCount;
-    
+
     address private owner;
-    
+    mapping( address => uint ) consumerBalance;
+
+    //Timed, we need to end bidding in 1 hour
+     modifier timed {
+        if(now < biddingEnds) {
+            _;
+        }
+        else
+        {
+            //Add exception
+            revert();
+        }
+     }
+
     constructor() public {
         totalConsumers = 0;
         totalSuppliers = 0;
         owner = msg.sender;
-        
-        //Test:
-        tradeCount = 0;
+
     }
-    
+
     modifier ownerOnly() {
         require(msg.sender == owner);
         _;
     }
     
-    function supplierBid(uint bidAmount) public {
+    //End supplier bidding in 1 hour
+    function supplierBid(uint bidAmount) public timed{
         Bidder storage bidder = suppliers[totalSuppliers];
-        
         bidder._address = msg.sender;
         bidder.bidAmount = bidAmount;
-        
+
         totalSuppliers++;
     }
-    
-    function consumerBid(uint bidAmount) public payable {
+    //End consumer bidding in 1 hour
+    function consumerBid(uint bidAmount) public payable timed{
         require(msg.value == bidAmount * 10**18);
         Bidder storage bidder = consumers[totalConsumers];
-        
+        consumerBalance[msg.sender] = msg.value;
         bidder._address = msg.sender;
         bidder.bidAmount = bidAmount;
-        
+
         totalConsumers++;
     }
     
-    function sortMatchBids() public ownerOnly {
+    function sortMatchBids() public  ownerOnly timed{
         // Create memory copies
         Bidder[5] memory suppliersCopy = suppliers;
         Bidder[5] memory consumersCopy = consumers;
-        
+
         // Sort copies
         quickSort(suppliersCopy, int(0), int(totalSuppliers - 1));
         quickSort(consumersCopy, int(0), int(totalConsumers - 1));
-        
-        // // Write back to original. Not really needed, since using copies for processing
-        //
-        // for( uint i=0; i<totalSuppliers; i++) {
-        //     suppliers[i] = suppliersCopy[i];
-        // }
-        // for( uint j=0; j<totalConsumers; j++) {
-        //     consumers[j] = consumersCopy[j];
-        // }
-        
+
         // Matching
         uint consumerIndex = 0;
         uint supplierIndex = 0;
         uint consumerPayableBid;
-        
+
         while(consumerIndex<totalConsumers && supplierIndex<totalSuppliers) {
             consumerPayableBid = (consumerIndex == totalConsumers - 1) // if lowest bid
                                  ? consumersCopy[consumerIndex].bidAmount
                                  : consumersCopy[consumerIndex+1].bidAmount;
-                                 
+
             if(consumerPayableBid < suppliersCopy[supplierIndex].bidAmount  )
                 supplierIndex++;
             else {
-                suppliersCopy[supplierIndex]._address.transfer(consumerPayableBid * 10**18);
-                
+                uint value = consumerPayableBid * 10**18;
+                suppliersCopy[supplierIndex]._address.transfer(value);
+                consumerBalance[consumersCopy[consumerIndex]._address] -= value;
+
                 // TODO Supplier sends assets to Consumer
-                
-                // For test:
-                tradeMatch[tradeCount][0] = supplierIndex;
-                tradeMatch[tradeCount][1] = consumerIndex;
-                tradeMatch[tradeCount][2] = consumerPayableBid;
-                tradeCount++;
-                // test ends 
-                
+
                 supplierIndex++;
                 consumerIndex++;
             }
         }
-        
-        // TODO Refund remaining balance to the correct consumers
-        // Can be acheived by keeping _balance mapping( address => uint ) 
-        // Updates: add balance on placing bid, subtract on sucessful match
-        // At the end, that is here, tranfer back an amount equal to balance to every consumer  
+
+        for(uint i=0; i<totalConsumers; i++) {
+            address payable consumerAddress =  consumersCopy[i]._address;
+            consumerAddress.transfer(consumerBalance[consumerAddress]);
+        }
+
     }
     
     function quickSort(Bidder[5] memory arr, int left, int right) internal{
