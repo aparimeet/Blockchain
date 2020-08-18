@@ -1,2 +1,2 @@
 # Blockchain
-Ethereum based projects
+Ethereum based projects.
